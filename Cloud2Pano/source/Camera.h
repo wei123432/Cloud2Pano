@@ -56,7 +56,7 @@ public:
         dirs.reserve(static_cast<size_t>(std::min<uint64_t>(N_LON * N_LAT, MAX_POINTS)));
         const long double d_lambda = 2* M_PI / static_cast<long double>(LON_TARGETNum);
         const long double d_phi = M_PI / static_cast<long double>(LAT_TARGETNum);
-        for (uint64_t ilat = 0; ilat < LAT_TARGETNum; ilat += lat_step) 
+        for (uint64_t ilat = 0; ilat < LAT_TARGETNum; ilat +=lat_step) 
         {
             long double f_phi = (static_cast<long double>(ilat) + 0.5) * d_phi; 
             long double phi = f_phi - M_PI_2; // 转换为地理纬度

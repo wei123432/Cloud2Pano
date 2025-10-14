@@ -166,15 +166,7 @@ int main()
     const Eigen::Quaterniond cam_quat(-0.122489, -0.679658, -0.135731, 0.710379);
     Camera camera(cam_pos, cam_quat);
 
-    // 特殊区域加密参数
-    Camera::GridRegion region1, region2, region3;
-   /* region1.dir = Eigen::Vector3d(1.0, 0.0, 0.0);
-    region1.sigma_deg = 45.0;
-    region1.strength = 2.0;
-    region2.dir = Eigen::Vector3d(1.0, 0.0, 0.0);
-    region2.sigma_deg = 15.0;
-    region2.strength = 3.0;*/
-    std::vector<Camera::GridRegion> special_region = { region1,region2,region3 };
+	// 生成模型的采样方向
     std::vector<Eigen::Vector3d> directions = camera.GenerateSphereGridDirections();
     std::cout << "Directions: " << directions.size() << "\n";
     std::vector<Eigen::Vector3d> ndirs;
@@ -185,7 +177,7 @@ int main()
         ndirs[i] = directions[i].normalized();
     }
 
-    const std::filesystem::path obj_path = "D:\\experience\\try\\DasModel\\3DModel\\OBJ\\Data\\Tile_+001_+000";
+    const std::filesystem::path obj_path = "D:\\experience\\try\\DasModel\\3DModel\\OBJ\\Data";
     std::vector<std::filesystem::path> obj_files = findAllOBJFiles(obj_path);
     std::vector<Mesh> meshes(obj_files.size());
     std::vector<char> loaded(obj_files.size(), 0);
@@ -218,10 +210,11 @@ int main()
         std::cout << "BVH nodes: " << bvhs[i].nodes.size() << std::endl;
     }
 
-
     const bool BACKFACE_CULL = true;
-    const auto out_dir = std::filesystem::path("D:\\experience\\try\\Visualmodel\\test1");
-    std::filesystem::create_directories(out_dir);
+    const auto out_dir_faces = std::filesystem::path("D:\\experience\\try\\Visualmodel\\face_select");
+    const auto out_dir_points = std::filesystem::path("D:\\experience\\try\\Visualmodel\\point_hit");
+    std::filesystem::create_directories(out_dir_faces);
+	std::filesystem::create_directories(out_dir_points);
 
 #pragma omp parallel for schedule(dynamic)
     for (int i = 0; i < (int)meshes.size(); ++i)
@@ -242,7 +235,7 @@ int main()
             int end = std::min(N, base + CHUNK);
             std::vector<int> localHitTris; // 每个线程的局部命中三角形集合
             localHitTris.reserve(end - base);
-            std::vector<Eigen::Vector3d> localHits;  // 每个线程的局部命中点集合
+            std::vector<Eigen::Vector3d> localHits; // 每个线程的局部命中点集合
             localHits.reserve(end - base);
 
             for (int k = base; k < end; ++k)
@@ -261,20 +254,15 @@ int main()
             hitPoints.insert(hitPoints.end(), localHits.begin(), localHits.end());
         }
 
-        // file-safe stem
         std::string stem = obj_files[i].filename().string();
-        for (auto& c : stem)
-            if (c == ' ' || c == ':' || c == '\\' || c == '/') c = '_';
-
-        const std::string out_vis_faces = (out_dir / ("visible_faces_" + stem)).string();
-
-        if (writeVisibleFacesOBJ(out_vis_faces + ".obj", mesh, visible))
+        const std::string out_vis_faces = (out_dir_faces / ("visible_faces_" + stem)).string();
+        if (writeVisibleFacesOBJ(out_vis_faces, mesh, visible))
         {
 #pragma omp critical
             std::cout << "[OK] Faces -> " << out_vis_faces << ".obj\n";
         }
-        const std::string out_vis_pts = (out_dir / ("visible_points_" + stem)).string();
-        if (writePointsOBJ(out_vis_pts + ".obj", hitPoints)) {
+        const std::string out_vis_pts = (out_dir_points / ("visible_points_" + stem)).string();
+        if (writePointsOBJ(out_vis_pts, hitPoints)) {
 #pragma omp critical
             std::cout << "[OK] Points -> " << out_vis_pts << ".obj\n";
         }
