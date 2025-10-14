@@ -168,14 +168,14 @@ int main()
 
     // 特殊区域加密参数
     Camera::GridRegion region1, region2, region3;
-    region1.dir = Eigen::Vector3d(1.0, 0.0, 0.0);
+   /* region1.dir = Eigen::Vector3d(1.0, 0.0, 0.0);
     region1.sigma_deg = 45.0;
     region1.strength = 2.0;
     region2.dir = Eigen::Vector3d(1.0, 0.0, 0.0);
     region2.sigma_deg = 15.0;
-    region2.strength = 3.0;
+    region2.strength = 3.0;*/
     std::vector<Camera::GridRegion> special_region = { region1,region2,region3 };
-    std::vector<Eigen::Vector3d> directions = camera.GenerateSphereGridDirections(0.00005, special_region, 20, true);
+    std::vector<Eigen::Vector3d> directions = camera.GenerateSphereGridDirections();
     std::cout << "Directions: " << directions.size() << "\n";
     std::vector<Eigen::Vector3d> ndirs;
     ndirs.resize(directions.size());
@@ -185,7 +185,7 @@ int main()
         ndirs[i] = directions[i].normalized();
     }
 
-    const std::filesystem::path obj_path = "D:\\experience\\try\\DasModel\\3DModel\\OBJ\\Data";
+    const std::filesystem::path obj_path = "D:\\experience\\try\\DasModel\\3DModel\\OBJ\\Data\\Tile_+001_+000";
     std::vector<std::filesystem::path> obj_files = findAllOBJFiles(obj_path);
     std::vector<Mesh> meshes(obj_files.size());
     std::vector<char> loaded(obj_files.size(), 0);
@@ -220,7 +220,7 @@ int main()
 
 
     const bool BACKFACE_CULL = true;
-    const auto out_dir = std::filesystem::path("D:\\experience\\try\\Visualmodel");
+    const auto out_dir = std::filesystem::path("D:\\experience\\try\\Visualmodel\\test1");
     std::filesystem::create_directories(out_dir);
 
 #pragma omp parallel for schedule(dynamic)
