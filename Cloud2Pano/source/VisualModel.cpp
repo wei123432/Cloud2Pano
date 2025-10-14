@@ -7,9 +7,7 @@
 #include <cmath>
 #include <filesystem>
 #include <algorithm>
-#include <numeric>
 #include <omp.h>
-
 #include "Camera.h"
 #include "Pano.h"
 #include "Algorithm.h"
@@ -171,6 +169,7 @@ int main()
     std::cout << "Directions: " << directions.size() << "\n";
     std::vector<Eigen::Vector3d> ndirs;
     ndirs.resize(directions.size());
+
 #pragma omp parallel for schedule(static)
     for (int i = 0; i < (int)directions.size(); ++i)
     {
@@ -181,6 +180,7 @@ int main()
     std::vector<std::filesystem::path> obj_files = findAllOBJFiles(obj_path);
     std::vector<Mesh> meshes(obj_files.size());
     std::vector<char> loaded(obj_files.size(), 0);
+    std::vector<BVH> bvhs(meshes.size());
 
 #pragma omp parallel for schedule(dynamic)
     for (int i = 0; i < (int)obj_files.size(); ++i)
@@ -200,7 +200,6 @@ int main()
         }
     }
 
-    std::vector<BVH> bvhs(meshes.size());
 #pragma omp parallel for schedule(dynamic)
     for (int i = 0; i < (int)meshes.size(); ++i)
     {
@@ -271,3 +270,8 @@ int main()
     std::cout << "Done.\n";
     return 0;
 }
+
+
+//1. 模型的偏移量没有加进去，需要对所有模型加上偏移量
+//2. 并行部分需加载文件后便加载包围盒，然后之间做检测（加载文件后迅速处理）
+//3. 模型之间没考虑遮挡问题，现在是穿透效果，要进行判断
