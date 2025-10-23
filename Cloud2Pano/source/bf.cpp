@@ -50,3 +50,59 @@ for (const auto& file : obj_files) {
         else
             std::cout << "Failed to write: " << output_path << "\n";
     }
+
+
+
+//单瓦块组成单模型寻找可视面与交点
+const auto out_dir_faces = std::filesystem::path("D:\\experience\\try\\Visualmodel\\face_select-true");
+const auto out_dir_points = std::filesystem::path("D:\\experience\\try\\Visualmodel\\point_hit-true");
+std::filesystem::create_directories(out_dir_faces);
+std::filesystem::create_directories(out_dir_points);
+
+#pragma omp parallel for schedule(dynamic)
+for (int i = 0; i < (int)meshes.size(); ++i)
+{
+    if (!loaded[i]) continue;
+    const Mesh& mesh = meshes[i];
+    const BVH& bvh = bvhs[i];
+    std::vector<char> visible(mesh.F.size(), 0);
+    std::vector<Eigen::Vector3d> hitPoints;
+    hitPoints.reserve(ndirs.size());
+    // chunked processing（保持原有分块，便于缓存友好）
+    const int N = (int)ndirs.size();
+    const int CHUNK = 2048;
+    for (int base = 0; base < N; base += CHUNK)
+    {
+        int end = std::min(N, base + CHUNK);
+        std::vector<int> localHitTris; // 每个线程的局部命中三角形集合
+        localHitTris.reserve(end - base);
+        std::vector<Eigen::Vector3d> localHits; // 每个线程的局部命中点集合
+        localHits.reserve(end - base);
+        for (int k = base; k < end; ++k)
+        {
+            double t;
+            int ti;
+            if (traverseBVHFirstHit(mesh, bvh, 0, cam_pos, ndirs[k], BACKFACE_CULL, t, ti))
+            {
+                localHits.emplace_back(cam_pos + t * ndirs[k]);
+                if (ti >= 0)
+                    localHitTris.push_back(ti);
+            }
+        }
+        for (int ti : localHitTris)
+            visible[ti] = 1;
+        hitPoints.insert(hitPoints.end(), localHits.begin(), localHits.end());
+    }
+    std::string stem = obj_files[i].filename().string();
+    const std::string out_vis_faces = (out_dir_faces / ("visible_faces_" + stem)).string();
+    if (writeVisibleFacesOBJ(out_vis_faces, mesh, visible))
+    {
+#pragma omp critical
+        std::cout << "[OK] Faces -> " << out_vis_faces << ".obj\n";
+    }
+    const std::string out_vis_pts = (out_dir_points / ("visible_points_" + stem)).string();
+    if (writePointsOBJ(out_vis_pts, hitPoints)) {
+#pragma omp critical
+        std::cout << "[OK] Points -> " << out_vis_pts << ".obj\n";
+    }
+}

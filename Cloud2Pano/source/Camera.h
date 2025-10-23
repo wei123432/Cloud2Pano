@@ -21,19 +21,12 @@ private:
 	Eigen::Quaterniond c_quaternion; //相机初始四元数
 
 public:
-    struct GridRegion 
-    {
-        Eigen::Vector3d dir; // 加密方向
-        double sigma_deg;    // 影响半角（角度）
-        double strength;      // 强度
-    };
-
 	//生成球面均匀采样方向
     std::vector<Eigen::Vector3d> GenerateSphereGridDirections() const
     {
-        constexpr uint64_t LON_TARGETNum = 10000; 
+        constexpr uint64_t LON_TARGETNum = 5000; 
         constexpr uint64_t LAT_TARGETNum = 5000;
-        constexpr uint64_t MAX_POINTS = 1e8; 
+        constexpr uint64_t MAX_POINTS = 1e7; 
         const long double total = static_cast<long double>(LON_TARGETNum) * static_cast<long double>(LAT_TARGETNum);
         // 计算抽稀步长
         uint64_t lon_step = 1, lat_step = 1;

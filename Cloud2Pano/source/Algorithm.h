@@ -136,7 +136,7 @@ static inline bool rayAABB(const Eigen::Vector3d& o, const Eigen::Vector3d& d,
 
 // Möller–Trumbore算法 
 static bool rayTriFirstHit(const Mesh& m, int ti, const Eigen::Vector3d& o, const Eigen::Vector3d& d,
-    double& io_tmax, bool backfaceCull)   // ti是每个面三个顶点的索引 o是原点的位置向量 d是方向向量 backfaceCull是背面剔除参数 io_max是当前已知的有效交点
+    double& io_tmax, bool backfaceCull)   // ti是每个面的索引 o是原点的位置向量 d是方向向量 backfaceCull是背面剔除参数 io_max是当前已知的有效交点
 {
     const auto& v0 = m.V[m.F[ti].i0], & v1 = m.V[m.F[ti].i1], & v2 = m.V[m.F[ti].i2];
     Eigen::Vector3d e1 = v1 - v0;
