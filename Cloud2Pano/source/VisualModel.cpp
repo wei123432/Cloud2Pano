@@ -18,7 +18,6 @@
 #include "Algorithm.h"
 #include "Mesh.h"
 
-//读取相机的数据文件
 bool readData(const std::string& filename,
     std::vector<std::vector<double>>& translations,
     std::vector<std::vector<double>>& quaternions)
@@ -31,15 +30,13 @@ bool readData(const std::string& filename,
 
     std::string s;
     // 逐行读取文件
-    while (std::getline(file, s)) 
-    {
+    while (std::getline(file, s)) {
         std::istringstream iss(s);
         std::vector<double> data;
         std::string token;
 
         // 按空格分割每行数据
-        while (iss >> token) 
-        {
+        while (iss >> token) {
             // 尝试将字符串转换为数字
             double value = std::stod(token);
             data.push_back(value);
@@ -64,9 +61,9 @@ bool readData(const std::string& filename,
     return true;
 }
 
-
 //辅助循环体
-struct RayHit {
+struct RayHit 
+{
     double t = std::numeric_limits<double>::infinity();
     int mesh_idx = -1;
     int tri_idx = -1;
@@ -289,26 +286,7 @@ static bool writeVisibleFacesOBJMulti(const std::string& path,const std::vector<
 
 int main()
 {
-    // Camera位姿
-    /*const Eigen::Vector3d cam_pos(-0.22033, -0.106948, 1.532681);*/
-    /*const Eigen::Vector3d cam_pos(-0.507947,- 0.162965,1.523007);*/
-    /*const Eigen::Vector3d cam_pos(-6.051642,- 0.567130,1.574263);*/
-    const Eigen::Vector3d cam_pos(-39.290264,4.874366,1.596728);
-    const Eigen::Quaterniond cam_quat(-0.122489, -0.679658, -0.135731, 0.710379);
-    Camera camera(cam_pos, cam_quat);
-
-    // 生成模型的采样方向
-    std::vector<Eigen::Vector3d> directions = camera.GenerateSphereGridDirections();
-    std::cout << "Directions: " << directions.size() << "\n";
-    std::vector<Eigen::Vector3d> ndirs;
-    ndirs.resize(directions.size());
-
-#pragma omp parallel for schedule(static)
-    for (int i = 0; i < (int)directions.size(); ++i)
-    {
-        ndirs[i] = directions[i].normalized();
-    }
-
+	//加载模型并计算包围盒信息
     const std::filesystem::path obj_path = "D:\\experience\\try\\DasModel\\3DModel\\OBJ\\Data";
     std::vector<std::filesystem::path> obj_files = findAllOBJFiles(obj_path);
     std::vector<Mesh> meshes(obj_files.size());
@@ -334,80 +312,107 @@ int main()
             std::cerr << "Failed to load OBJ file: " << obj_files[i] << std::endl;
         }
     }
-    auto start = std::chrono::high_resolution_clock::now();
-    //多瓦快组成单模型寻找可视面与交点
-    const bool BACKFACE_CULL = true;
-    const int N = static_cast<int>(ndirs.size());
-    std::vector<RayHit> hits(N);
-#pragma omp parallel for schedule(dynamic)        
-    for (int k = 0; k < ndirs.size(); ++k)
-    {
-        int best_mesh = -1;
-        int best_tri = -1;
-        Eigen::Vector3d best_p = Eigen::Vector3d::Zero();
-        double best_t = std::numeric_limits<double>::infinity();
 
-        for (int i = 0; i < (int)meshes.size(); ++i)
+    // Camera位姿
+    std::vector<std::vector<double>> translations; 
+    std::vector<std::vector<double>> quaternions;
+    const std::string cameraPos_file = "D:\\experience\\try\\DasModel\\POS\\camera1_pose.asc"; 
+    if(!readData(cameraPos_file, translations, quaternions)) 
+        return 1;
+    for (size_t ci = 0; ci < translations.size(); ++ci)
+    {
+        Eigen::Vector3d cam_pos(translations[ci][0], translations[ci][1], translations[ci][2]);
+        const auto& qv = quaternions[ci];
+        Eigen::Quaterniond cam_quat(qv[3], qv[0], qv[1], qv[2]);
+        Camera camera(cam_pos, cam_quat);   
+
+        // 生成模型的采样方向
+        std::vector<Eigen::Vector3d> directions = camera.GenerateSphereGridDirections();
+        std::cout << "Directions: " << directions.size() << "\n";
+        std::vector<Eigen::Vector3d> ndirs;
+        ndirs.resize(directions.size());
+
+#pragma omp parallel for schedule(static)
+        for (int i = 0; i < (int)directions.size(); ++i)
+        {
+            ndirs[i] = directions[i].normalized();
+        }
+
+        auto start = std::chrono::high_resolution_clock::now();
+        //多瓦快组成的单模型寻找可视面与交点
+        const bool BACKFACE_CULL = true;
+        const int N = static_cast<int>(ndirs.size());
+        std::vector<RayHit> hits(N);
+#pragma omp parallel for schedule(dynamic)        
+        for (int k = 0; k < ndirs.size(); ++k)
+        {
+            int best_mesh = -1;
+            int best_tri = -1;
+            Eigen::Vector3d best_p = Eigen::Vector3d::Zero();
+            double best_t = std::numeric_limits<double>::infinity();
+
+            for (int i = 0; i < (int)meshes.size(); ++i)
+            {
+                if (!loaded[i]) continue;
+                double t;
+                int ti;
+                if (traverseBVHFirstHit(meshes[i], bvhs[i], 0, cam_pos, ndirs[k], BACKFACE_CULL, t, ti))
+                {
+
+                    if (t < best_t)
+                    {
+                        best_t = t;
+                        best_mesh = i;
+                        best_tri = ti;
+                        best_p = cam_pos + t * ndirs[k];
+                    }
+                }
+            }
+            //记录最后的t值、击中的模型信息、面索引、击中点、击中状态
+            if (best_mesh > 0 && best_tri >= 0)
+            {
+                hits[k].t = best_t;
+                hits[k].mesh_idx = best_mesh;
+                hits[k].tri_idx = best_tri;
+                hits[k].point = best_p;
+                hits[k].hit = true;
+            }
+            else
+            {
+                hits[k].hit = false;
+            }
+        }
+
+        std::vector<std::vector<char>> visibles(meshes.size());
+        for (size_t i = 0; i < meshes.size(); ++i)
         {
             if (!loaded[i]) continue;
-            double t;
-            int ti;
-            if (traverseBVHFirstHit(meshes[i], bvhs[i], 0, cam_pos, ndirs[k], BACKFACE_CULL, t, ti))
-            {
-
-                if (t < best_t)
-                {
-                    best_t = t;
-                    best_mesh = i;
-                    best_tri = ti;
-                    best_p = cam_pos + t * ndirs[k];
-                }
-            }   
+            visibles[i].assign(meshes[i].F.size(), 0);
         }
-        //记录最后的t值、击中的模型信息、面索引、击中点、击中状态
-        if (best_mesh > 0 && best_tri >= 0)
-        {
-            hits[k].t = best_t;
-            hits[k].mesh_idx = best_mesh;
-            hits[k].tri_idx = best_tri;
-            hits[k].point = best_p;
-            hits[k].hit = true;
-		}
-        else 
-        {
-            hits[k].hit = false;
+        std::vector<Eigen::Vector3d> allHitPoints;
+        allHitPoints.reserve(N);
+        for (int k = 0; k < N; ++k) {
+            if (!hits[k].hit) continue;
+            visibles[hits[k].mesh_idx][hits[k].tri_idx] = 1;
+            allHitPoints.push_back(hits[k].point);
         }
-    }
 
-    std::vector<std::vector<char>> visibles(meshes.size());
-    for (size_t i = 0; i < meshes.size(); ++i)
-    {
-        if (!loaded[i]) continue;
-        visibles[i].assign(meshes[i].F.size(), 0);
-    }
-    std::vector<Eigen::Vector3d> allHitPoints;
-    allHitPoints.reserve(N);
-    for (int k = 0; k < N; ++k) {
-        if (!hits[k].hit) continue;
-        visibles[hits[k].mesh_idx][hits[k].tri_idx] = 1;
-        allHitPoints.push_back(hits[k].point);
-    }
+        const auto out_root = std::filesystem::path("D:\\experience\\try\\Visualmodel\\test");
+        std::filesystem::create_directories(out_root);
 
-    const auto out_root = std::filesystem::path("D:\\experience\\try\\Visualmodel\\merged5");
-    std::filesystem::create_directories(out_root);
-
-    const std::string out_faces = (out_root / "visible_all.obj").string();
-    if (writeVisibleFacesOBJMulti(out_faces, meshes, visibles)) 
-    {
+		const std::string out_faces = (out_root / ("visible_cam_" + std::to_string(ci) + ".obj")).string();
+        if (writeVisibleFacesOBJMulti(out_faces, meshes, visibles))
+        {
 #pragma omp critical
-        std::cout << "[OK] Faces -> " << out_faces << "\n";
-    }
-    else 
-    {
+            std::cout << "[OK] Faces -> " << out_faces << "\n";
+        }
+        else
+        {
 #pragma omp critical
-        std::cerr << "Failed to write faces: " << out_faces << "\n";
+            std::cerr << "Failed to write faces: " << out_faces << "\n";
+        }
+        auto end = std::chrono::high_resolution_clock::now();
+        auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
+        std::cout << "Function took " << duration.count() << " milliseconds to execute." << std::endl;
     }
-    auto end = std::chrono::high_resolution_clock::now();
-    auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
-    std::cout << "Function took " << duration.count() << " milliseconds to execute." << std::endl;
 }

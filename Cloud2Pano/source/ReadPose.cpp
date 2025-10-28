@@ -52,21 +52,21 @@ bool readData(const std::string& filename,
     return true;
 }
 
-void Cloud::Panoprojection(const Camera& camera)
-{
-    //世界系转相机系
-    Eigen::Matrix4d W2C = camera.pose.inverse();
-    Eigen::Vector4d world2camera = W2C*Cloud::CameraPosition;
-
-    //相机系转全景坐标系
-    double dis = sqrt(pow(world2camera(0), 2) + pow(world2camera(1), 2) + pow(world2camera(2), 2));  // 计算点云到圆心距离
-    double theta = atan2(world2camera(1), world2camera(0));  // 方位角 (0,pi)
-    double phi = asin(world2camera(2) / dis);  // 俯仰角 [-pi/2,pi/2]
-    int x = int((row / 2) * (theta / M_PI));
-    int y = int(phi / M_PI) * col;
-    int u = row / 2 + x;
-    int v = col / 2 - y;
-}
+//void Cloud::Panoprojection(const Camera& camera)
+//{
+//    //世界系转相机系
+//    Eigen::Matrix4d W2C = camera.pose.inverse();
+//    Eigen::Vector4d world2camera = W2C*Cloud::CameraPosition;
+//
+//    //相机系转全景坐标系
+//    double dis = sqrt(pow(world2camera(0), 2) + pow(world2camera(1), 2) + pow(world2camera(2), 2));  // 计算点云到圆心距离
+//    double theta = atan2(world2camera(1), world2camera(0));  // 方位角 (0,pi)
+//    double phi = asin(world2camera(2) / dis);  // 俯仰角 [-pi/2,pi/2]
+//    int x = int((row / 2) * (theta / M_PI));
+//    int y = int(phi / M_PI) * col;
+//    int u = row / 2 + x;
+//    int v = col / 2 - y;
+//}
 
 
 
