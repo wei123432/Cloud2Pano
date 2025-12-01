@@ -11,8 +11,7 @@ public:
 	//相机的世界坐标点
 	Eigen::Vector4d CameraPosition;
 	//全景图的长宽
-	int row, col;
-	///void Panoprojection(const Camera& camera);
+	void Panoprojection(Eigen::Vector3d v,const Camera& camera);
 };
 
 

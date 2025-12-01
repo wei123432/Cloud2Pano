@@ -106,3 +106,116 @@ for (int i = 0; i < (int)meshes.size(); ++i)
         std::cout << "[OK] Points -> " << out_vis_pts << ".obj\n";
     }
 }
+
+//读取位姿文件
+std::cout << "成功读取 " << translations.size() << " 行数据" << std::endl;
+
+// 打印读取结果（示例）
+for (size_t i = 0; i < translations.size(); i++) 
+{
+    std::cout << "第 " << i + 1 << " 行:" << std::endl;
+    std::cout << "  平移向量: ";
+    for (double val : translations[i]) 
+    {
+        std::cout << val << " ";
+    }
+    std::cout << std::endl;
+
+    std::cout << "  四元数: ";
+    for (double val : quaternions[i]) 
+    {
+        std::cout << val << " ";
+    }
+    std::cout << std::endl << std::endl;
+}
+
+
+
+
+// 根据面与面之间是否共享顶点，把 Mesh 拆成多个连通块
+void computeFaceComponents(
+    const Mesh& m,
+    std::vector<int>& faceComp,  // 输出：每个面的组件 id
+    int& numComponents)          // 输出：组件数量
+{
+    const int F = static_cast<int>(m.F.size());
+    faceComp.assign(F, -1);
+    numComponents = 0;
+
+    // 顶点 -> 相邻面列表
+    std::vector<std::vector<int>> vertexFaces(m.V.size());
+    for (int fi = 0; fi < F; ++fi)
+    {
+        const auto& f = m.F[fi];
+        vertexFaces[f.i0].push_back(fi);
+        vertexFaces[f.i1].push_back(fi);
+        vertexFaces[f.i2].push_back(fi);
+    }
+
+    std::vector<int> stack;
+    stack.reserve(64);
+
+    for (int fi = 0; fi < F; ++fi)
+    {
+        if (faceComp[fi] != -1) continue; // 已经标过
+
+        int cid = numComponents++;
+        faceComp[fi] = cid;
+        stack.clear();
+        stack.push_back(fi);
+
+        // DFS / BFS 都行，这里用 stack 做 DFS
+        while (!stack.empty())
+        {
+            int cur = stack.back();
+            stack.pop_back();
+
+            const auto& cf = m.F[cur];
+            int vids[3] = { cf.i0, cf.i1, cf.i2 };
+
+            for (int k = 0; k < 3; ++k)
+            {
+                int v = vids[k];
+                for (int nbFace : vertexFaces[v])
+                {
+                    if (faceComp[nbFace] == -1)
+                    {
+                        faceComp[nbFace] = cid;
+                        stack.push_back(nbFace);
+                    }
+                }
+            }
+        }
+    }
+}
+
+//给每一个联通块计算AABB
+void buildComponentBoxes(
+    const Mesh& m,
+    const std::vector<int>& faceComp,
+    int numComponents,
+    double padding,
+    std::vector<AABB>& compBoxes)
+{
+    compBoxes.assign(numComponents, AABB());
+
+    // 用每个面的三个顶点扩对应组件的 AABB
+    for (int fi = 0; fi < static_cast<int>(m.F.size()); ++fi)
+    {
+        int cid = faceComp[fi];
+        auto& box = compBoxes[cid];
+
+        const auto& f = m.F[fi];
+        box.expand(m.V[f.i0]);
+        box.expand(m.V[f.i1]);
+        box.expand(m.V[f.i2]);
+    }
+
+    // 在每个 AABB 外面扩一圈 padding
+    Eigen::Vector3d pad(padding, padding, padding);
+    for (int c = 0; c < numComponents; ++c)
+    {
+        compBoxes[c].bmin -= pad;
+        compBoxes[c].bmax += pad;
+    }
+}

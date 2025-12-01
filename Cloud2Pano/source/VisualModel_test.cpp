@@ -17,7 +17,49 @@
 #include "Pano.h"
 #include "Algorithm.h"
 #include "Mesh.h"
-#include "Loader.h"
+
+bool readData(const std::string& filename,
+    std::vector<std::vector<double>>& translations,
+    std::vector<std::vector<double>>& quaternions)
+{
+    std::ifstream file(filename);
+    if (!file.is_open()) {
+        std::cout << "无法打开文件: " << filename << std::endl;
+        return false;
+    }
+
+    std::string s;
+    // 逐行读取文件
+    while (std::getline(file, s)) {
+        std::istringstream iss(s);
+        std::vector<double> data;
+        std::string token;
+
+        // 按空格分割每行数据
+        while (iss >> token) {
+            // 尝试将字符串转换为数字
+            double value = std::stod(token);
+            data.push_back(value);
+        }
+
+        // 检查数据是否足够（至少需要9个数字）
+        if (data.size() >= 7) {
+            // 提取第三、四、五个数据（索引2、3、4）
+            std::vector<double> trans = { data[2], data[3], data[4] };
+            // 提取第六到第九个数据（索引5、6、7、8）
+            std::vector<double> quat = { data[5], data[6], data[7], data[8] };
+
+            translations.push_back(trans);
+            quaternions.push_back(quat);
+        }
+        else {
+            std::cout << "数据格式不正确，跳过该行: " << s << std::endl;
+        }
+    }
+
+    file.close();
+    return true;
+}
 
 //辅助循环体
 struct RayHit 
@@ -28,6 +70,160 @@ struct RayHit
     Eigen::Vector3d point = Eigen::Vector3d::Zero();
     bool hit = false;
 };
+
+
+// 把obj的索引改为从0开始
+static int parseIndex(const std::string& indice_string)
+{
+    size_t slash = indice_string.find('/');
+    std::string s = (slash == std::string::npos) ? indice_string : indice_string.substr(0, slash);
+    int idx = std::stoi(s);
+    return idx - 1;
+}
+
+// 加载obj文件
+static bool loadOBJ(const std::string& path, Mesh& mesh) {
+    std::ifstream ifs(path);
+    if (!ifs) return false;
+    mesh.V.clear();
+    mesh.F.clear();
+
+    std::string line;
+    std::vector<int> face;
+    while (std::getline(ifs, line))
+    {
+        if (line.empty() || line[0] == '#') continue;
+        std::istringstream ss(line);
+        std::string tag;
+        ss >> tag;
+        if (tag == "v")
+        {
+            double x, y, z;
+            ss >> x >> y >> z;
+            x += X_SRS;
+			y += Y_SRS;
+			z += Z_SRS;
+            mesh.V.emplace_back(x, y, z);
+        }
+        else if (tag == "f") 
+        {
+            face.clear();
+            std::string token;
+            while (ss >> token) 
+            {
+                try 
+                {
+                    face.push_back(parseIndex(token));
+                }
+                catch (...) {}
+            }
+            if (face.size() >= 3) 
+            {
+                for (size_t j = 1; j + 1 < face.size(); ++j) 
+                {
+                    mesh.F.push_back({ face[0], face[j], face[j + 1] });
+                }
+            }
+        }
+    }
+    return true;
+}
+
+// 找到文件夹中所有的obj
+static std::vector<std::filesystem::path> findAllOBJFiles(const std::filesystem::path& rootDir)
+{
+    std::vector<std::filesystem::path> objFiles;
+    try {
+        for (const auto& entry : std::filesystem::recursive_directory_iterator(rootDir)) {
+            if (entry.is_regular_file()) {
+                std::string ext = entry.path().extension().string();
+                std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
+                if (ext == ".obj") {
+                    objFiles.push_back(entry.path());
+                }
+            }
+        }
+    }
+    catch (const std::filesystem::filesystem_error& e) {
+        std::cerr << "filesystem error: " << e.what() << std::endl;
+    }
+
+    return objFiles;
+}
+
+// 写入点数据
+static bool writePointsOBJ(const std::string& path, const std::vector<Eigen::Vector3d>& pts) {
+    std::ofstream ofs(path);
+    if (!ofs) return false;
+    ofs.setf(std::ios::fixed);
+    ofs.precision(6);
+    ofs << "o VisiblePoints\n";
+    for (const auto& p : pts) {
+        ofs << "v " << p.x() << " " << p.y() << " " << p.z() << "\n";
+    }
+    return true;
+}
+
+//写入可视面数据
+static bool writeVisibleFacesOBJ(const std::string& path, const Mesh& m, const std::vector<char>& visible) 
+{
+    std::vector<int> usedFaces;
+    for (size_t i = 0; i < visible.size(); ++i)
+        if (visible[i])
+            usedFaces.push_back((int)i);
+    if (usedFaces.empty())
+    {
+        std::ofstream ofs(path); // write empty object header
+        if (!ofs) return false;
+        ofs << "o VisibleFaces\n";
+        return true;
+    }
+    std::vector<int> usedVtxFlags(m.V.size(), 0);
+    for (int ti : usedFaces)
+    {
+        usedVtxFlags[m.F[ti].i0] = 1;
+        usedVtxFlags[m.F[ti].i1] = 1;
+        usedVtxFlags[m.F[ti].i2] = 1;
+    }
+    std::vector<int> old2new(m.V.size(), -1);
+    std::vector<Eigen::Vector3d> newV;
+    newV.reserve(m.V.size());
+    for (size_t vi = 0; vi < m.V.size(); ++vi)
+    {
+        if (usedVtxFlags[vi])
+        {
+            old2new[vi] = (int)newV.size();
+            newV.push_back(m.V[vi]);
+        }
+    }
+    std::ofstream ofs(path);
+    if (!ofs) return false;
+    ofs.setf(std::ios::fixed);
+    ofs.precision(6);
+    ofs << "o VisibleFaces\n";
+    for (const auto& v : newV)
+    {
+        ofs << "v " << v.x() << " " << v.y() << " " << v.z() << "\n";
+    }
+    for (int ti : usedFaces)
+    {
+        int a = old2new[m.F[ti].i0];
+        int b = old2new[m.F[ti].i1];
+        int c = old2new[m.F[ti].i2];
+        ofs << "f " << (a + 1) << " " << (b + 1) << " " << (c + 1) << "\n";
+    }
+    return true;
+}
+
+// 写入可视面的索引
+static bool writeFaceIDs(const std::string& path, std::vector<char>& visible)
+{
+    std::ofstream ofs(path);
+    if (!ofs) return false;
+    for (size_t i = 0; i < visible.size(); ++i)
+        if (visible[i]) ofs << i << "\n";
+    return true;
+}
 
 //合并多个顶点写成单一obj文件
 static bool writeVisibleFacesOBJMulti(const std::string& path,const std::vector<Mesh>& meshes,
@@ -125,21 +321,20 @@ int main()
     // Camera位姿
     std::vector<std::vector<double>> translations; 
     std::vector<std::vector<double>> quaternions;
-    const std::string cameraPos_file = "D:\\experience\\Web\\data_origin\\POS\\camera1_pose.asc"; 
+    const std::string cameraPos_file = "D:\\experience\\Web\\data_origin\\POS\\camera1_pose.asc";
     if(!readData(cameraPos_file, translations, quaternions)) 
         return 1;
-    for (size_t ci = 0; ci < translations.size(); ++ci)
-    {
-        Eigen::Vector3d cam_pos(translations[ci][0], translations[ci][1], translations[ci][2]);
-        const auto& qv = quaternions[ci];
-        Eigen::Quaterniond cam_quat(qv[3], qv[0], qv[1], qv[2]);
-        Camera camera(cam_pos, cam_quat);   
+    size_t ci = 30;
+    Eigen::Vector3d cam_pos(translations[ci][0], translations[ci][1], translations[ci][2]);
+    const auto& qv = quaternions[ci];
+    Eigen::Quaterniond cam_quat(qv[3], qv[0], qv[1], qv[2]);
+    Camera camera(cam_pos, cam_quat);   
 
-        // 生成模型的采样方向
-        std::vector<Eigen::Vector3d> directions = camera.GenerateSphereGridDirections();
-        std::cout << "Directions: " << directions.size() << "\n";
-        std::vector<Eigen::Vector3d> ndirs;
-        ndirs.resize(directions.size());
+    // 生成模型的采样方向
+    std::vector<Eigen::Vector3d> directions = camera.GenerateSphereGridDirections();
+    std::cout << "Directions: " << directions.size() << "\n";
+    std::vector<Eigen::Vector3d> ndirs;
+    ndirs.resize(directions.size());
 
 #pragma omp parallel for schedule(static)
         for (int i = 0; i < (int)directions.size(); ++i)
@@ -149,7 +344,7 @@ int main()
 
         auto start = std::chrono::high_resolution_clock::now();
         //多瓦快组成的单模型寻找可视面与交点
-        const bool BACKFACE_CULL = true;
+        const bool BACKFACE_CULL = false;
         const int N = static_cast<int>(ndirs.size());
         std::vector<RayHit> hits(N);
 #pragma omp parallel for schedule(dynamic)        
@@ -206,7 +401,7 @@ int main()
             allHitPoints.push_back(hits[k].point);
         }
 
-        const auto out_root = std::filesystem::path("D:\\experience\\try\\Visualmodel\\test");
+        const auto out_root = std::filesystem::path("D:\\experience\\Web\\Visualmodel\\Possion_visiualmodel");
         std::filesystem::create_directories(out_root);
 
 		const std::string out_faces = (out_root / ("visible_cam_" + std::to_string(ci) + ".obj")).string();
@@ -223,5 +418,4 @@ int main()
         auto end = std::chrono::high_resolution_clock::now();
         auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
         std::cout << "Function took " << duration.count() << " milliseconds to execute." << std::endl;
-    }
 }

@@ -6,8 +6,6 @@
 #include "Pano.h"
 #include <cmath>
 
-
-
 //读取txt文档 获取相机位姿
 bool readData(const std::string& filename,
     std::vector<std::vector<double>>& translations,  
@@ -47,52 +45,48 @@ bool readData(const std::string& filename,
             std::cout << "数据格式不正确，跳过该行: " << s << std::endl;
         }
     }
-
     file.close();
     return true;
 }
 
-//void Cloud::Panoprojection(const Camera& camera)
-//{
-//    //世界系转相机系
-//    Eigen::Matrix4d W2C = camera.pose.inverse();
-//    Eigen::Vector4d world2camera = W2C*Cloud::CameraPosition;
-//
-//    //相机系转全景坐标系
-//    double dis = sqrt(pow(world2camera(0), 2) + pow(world2camera(1), 2) + pow(world2camera(2), 2));  // 计算点云到圆心距离
-//    double theta = atan2(world2camera(1), world2camera(0));  // 方位角 (0,pi)
-//    double phi = asin(world2camera(2) / dis);  // 俯仰角 [-pi/2,pi/2]
-//    int x = int((row / 2) * (theta / M_PI));
-//    int y = int(phi / M_PI) * col;
-//    int u = row / 2 + x;
-//    int v = col / 2 - y;
-//}
+Eigen::Vector2d Panoprojection(Eigen::Vector3d v,const Camera& camera)
+{
+    //世界系转相机系
 
+    Eigen::Matrix4d W2C = camera.pose.inverse();
+	Eigen::Vector4d v_t = Eigen::Vector4d(v(0), v(1), v(2), 1.0);
+    Eigen::Vector4d world2camera = W2C*v;
 
+    //相机系转全景坐标系
+    int row = 5844;
+	int col = 2922;
+    double dis = sqrt(pow(world2camera(0), 2) + pow(world2camera(1), 2) + pow(world2camera(2), 2));  // 计算点到圆心距离
+    double theta = atan2(world2camera(1), world2camera(0));  // 方位角 (0,pi)
+    double phi = asin(world2camera(2) / dis);  // 俯仰角 [-pi/2,pi/2]
+    int x = int((row / 2) * (theta / M_PI));
+    int y = int(phi / M_PI) * col;
+    int u = row / 2 + x;
+    int v = col / 2 - y;
+    return Eigen::Vector2d(u, v);
+}
 
 int main()
 {
     std::string filename = "D:\\experience\\try\\DasModel\\POS\\camera1_pose.asc";
     std::vector<std::vector<double>> translations;
     std::vector<std::vector<double>> quaternions;
-    if (readData(filename, translations, quaternions)) {
-        std::cout << "成功读取 " << translations.size() << " 行数据" << std::endl;
+    if (readData(filename, translations, quaternions)) 
+    {
+        const auto CameraPos = Eigen::Vector3d(-6.265600,0.489403,1.539521);
+		const auto CameraQuat = Eigen::Quaterniond(-0.502943,- 0.521237,- 0.458408,0.514997);
+        Camera camera(CameraPos, CameraQuat);
+        for (int i = 0;i< translations.size();i++)
+        {
+			std::vector<Eigen::Vector2d> new_positions;
+            Eigen::Vector3d position(translations[i][0], translations[i][1], translations[i][2]);
+            auto new_position=Panoprojection(position, camera);
+			new_positions.push_back(new_position);
 
-        // 打印读取结果（示例）
-        for (size_t i =0 ; i < translations.size(); i++) {
-            std::cout << "第 " << i + 1 << " 行:" << std::endl;
-            std::cout << "  平移向量: ";
-            for (double val : translations[i]) {
-                std::cout << val << " ";
-            }
-            std::cout << std::endl;
-
-            std::cout << "  四元数: ";
-            for (double val : quaternions[i]) {
-                std::cout << val << " ";
-            }
-            std::cout << std::endl << std::endl;
         }
-    }
-    return 0;
+        
 }

@@ -42,6 +42,15 @@ static Eigen::Vector3d triCentroid(const Mesh& m, int ti)
     return (v0 + v1 + v2) / 3.0;
 }
 
+//模型的包围盒计算
+static AABB computeMeshBox(const Mesh& m)
+{
+    AABB box;
+    for (const auto& v : m.V)
+        box.expand(v);
+    return box;
+}
+
 //BVH节点
 struct BVHNode {
     AABB box; //包围盒数据
@@ -122,6 +131,54 @@ struct BVH {
         buildRec(0, (int)triIdx.size());
     }
 };
+
+//AABB包围盒内部判断
+static bool overlaps(const AABB& a, const AABB& b)
+{
+    if (a.bmax.x() < b.bmin.x() || a.bmin.x() > b.bmax.x()) return false;
+    if (a.bmax.y() < b.bmin.y() || a.bmin.y() > b.bmax.y()) return false;
+    if (a.bmax.z() < b.bmin.z() || a.bmin.z() > b.bmax.z()) return false;
+    return true;
+}
+
+// 点是否在 AABB 内（含边界）
+static bool contains(const AABB& box, const Eigen::Vector3d& p)
+{
+    return (p.x() >= box.bmin.x() && p.x() <= box.bmax.x() &&
+        p.y() >= box.bmin.y() && p.y() <= box.bmax.y() &&
+        p.z() >= box.bmin.z() && p.z() <= box.bmax.z());
+}
+
+//用可视模型包围盒裁切模型
+static void queryBVH_AABB(
+    const BVH& bvh,
+    int nodeIdx,
+    const AABB& queryBox,
+    std::vector<int>& outTriIndices)
+{
+    if (nodeIdx < 0) return;
+    const BVHNode& node = bvh.nodes[nodeIdx];
+
+    // 节点包围盒与查询盒不相交，直接返回
+    if (!overlaps(node.box, queryBox))
+        return;
+
+    // 叶子节点
+    if (node.count > 0)
+    {
+        for (int i = 0; i < node.count; ++i)
+        {
+            int triIndex = bvh.triIdx[node.start + i]; // triIdx 映射到 mesh->F 下标
+            outTriIndices.push_back(triIndex);
+        }
+    }
+    else
+    {
+        // 内部节点：递归左右子树
+        queryBVH_AABB(bvh, node.left, queryBox, outTriIndices);
+        queryBVH_AABB(bvh, node.right, queryBox, outTriIndices);
+    }
+}
 
 // 光线与AABB盒相交测试
 static inline bool rayAABB(const Eigen::Vector3d& o, const Eigen::Vector3d& d, 
@@ -234,4 +291,160 @@ static bool traverseBVHFirstHit(const Mesh& m, const BVH& bvh, int root,
         return true; 
     }
     return false;
+}
+
+//2D占用网格结构
+struct OccupancyGrid2D
+{
+    int nx = 0, ny = 0; //网格行列数
+	double xmin = 0, ymin = 0; //网格起始坐标
+    double dx = 1, dy = 1; // 网格边长
+    std::vector<unsigned char> data; // 网格占用状态
+
+    //初始化
+    void init(double xmin_, double xmax_, double ymin_, double ymax_, int nx_, int ny_)
+    {
+        nx = nx_;
+        ny = ny_;
+        xmin = xmin_;
+        ymin = ymin_;
+        dx = (xmax_ - xmin_) / std::max(1, nx - 1);
+        dy = (ymax_ - ymin_) / std::max(1, ny - 1);
+        data.assign(nx * ny, 0);
+    }
+
+	// 判断索引是否在网格内
+    inline bool insideIndex(int ix, int iy) const
+    {
+        return (ix >= 0 && ix < nx && iy >= 0 && iy < ny);
+    }
+
+	// 世界坐标转网格索引
+    inline void worldToIndex(double x, double y, int& ix, int& iy) const
+    {
+        ix = (int)std::floor((x - xmin) / dx + 0.5);
+        iy = (int)std::floor((y - ymin) / dy + 0.5);
+    }
+
+	//标记占用
+    void mark(double x, double y)
+    {
+        int ix, iy;
+        worldToIndex(x, y, ix, iy);
+        if (insideIndex(ix, iy))
+            data[iy * nx + ix] = 1;
+    }
+
+	//判断网格索引是否被占用
+    bool isOccupied(double x, double y) const
+    {
+        int ix, iy;
+        worldToIndex(x, y, ix, iy);
+        if (!insideIndex(ix, iy))
+            return false;
+        return data[iy * nx + ix] != 0;
+    }
+
+    // 放大占用区域
+    void dilate(int iterations)
+    {
+        for (int it = 0; it < iterations; ++it)
+        {
+            std::vector<unsigned char> tmp = data;
+            for (int iy = 0; iy < ny; ++iy)
+            {
+                for (int ix = 0; ix < nx; ++ix)
+                {
+                    if (data[iy * nx + ix]) continue;
+                    bool hit = false;
+                    for (int dy_ = -1; dy_ <= 1 && !hit; ++dy_)
+                        for (int dx_ = -1; dx_ <= 1 && !hit; ++dx_)
+                        {
+                            int jx = ix + dx_, jy = iy + dy_;
+                            if (insideIndex(jx, jy) && data[jy * nx + jx])
+                                hit = true;
+                        }
+                    if (hit) tmp[iy * nx + ix] = 1;
+                }
+            }
+            data.swap(tmp);
+        }
+    }
+
+    // 缩小占用区域
+    void erode(int iterations)
+    {
+        for (int it = 0; it < iterations; ++it)
+        {
+            std::vector<unsigned char> tmp = data;
+            for (int iy = 0; iy < ny; ++iy)
+            {
+                for (int ix = 0; ix < nx; ++ix)
+                {
+                    if (!data[iy * nx + ix]) continue;
+                    bool allNeighbors = true;
+                    for (int dy_ = -1; dy_ <= 1 && allNeighbors; ++dy_)
+                        for (int dx_ = -1; dx_ <= 1 && allNeighbors; ++dx_)
+                        {
+                            int jx = ix + dx_, jy = iy + dy_;
+                            if (!insideIndex(jx, jy) || !data[jy * nx + jx])
+                                allNeighbors = false;
+                        }
+                    if (!allNeighbors) tmp[iy * nx + ix] = 0;
+                }
+            }
+            data.swap(tmp);
+        }
+    }
+};
+
+// 根据可视模型构建 XY 平面的占用掩码，并返回 Z 范围
+void buildVisibleMaskXY
+    (const Mesh& visibleMesh,
+     OccupancyGrid2D& grid,
+     double& zMin, double& zMax)
+{
+    double xmin = std::numeric_limits<double>::infinity();
+    double xmax = -std::numeric_limits<double>::infinity();
+    double ymin = std::numeric_limits<double>::infinity();
+    double ymax = -std::numeric_limits<double>::infinity();
+    zMin = std::numeric_limits<double>::infinity();
+    zMax = -std::numeric_limits<double>::infinity();
+
+    for (const auto& v : visibleMesh.V)
+    {
+        xmin = std::min(xmin, v.x());
+        xmax = std::max(xmax, v.x());
+        ymin = std::min(ymin, v.y());
+        ymax = std::max(ymax, v.y());
+        zMin = std::min(zMin, v.z());
+        zMax = std::max(zMax, v.z());
+    }
+
+    double padXY = 0.5; 
+    xmin -= padXY; xmax += padXY;
+    ymin -= padXY; ymax += padXY;
+
+    //按范围初始化网格（分辨率可以根据场景调）
+    const int nx = 1024;
+    const int ny = 1024;
+    grid.init(xmin, xmax, ymin, ymax, nx, ny);
+
+    //把可视模型的顶点投影到 XY，标记为占用
+    for (const auto& v : visibleMesh.V)
+    {
+        grid.mark(v.x(), v.y());
+    }
+
+    //做一次形态学“闭操作”：先膨胀再腐蚀，填小洞、连细缝
+    int iter = 2; 
+    grid.dilate(iter);
+    grid.erode(iter);
+
+    //再额外膨胀一圈
+    double extraXY = 0.3; 
+    double cellSize = std::max(grid.dx, grid.dy);
+    int extraIter = std::max(1, (int)std::ceil(extraXY / cellSize));
+
+    grid.dilate(extraIter);
 }
