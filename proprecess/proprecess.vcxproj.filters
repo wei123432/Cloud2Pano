@@ -15,21 +15,15 @@
     </Filter>
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="source\Camera.h">
-      <Filter>头文件</Filter>
-    </ClInclude>
-    <ClInclude Include="source\Algorithm.h">
+    <ClInclude Include="source\Loader.h">
       <Filter>头文件</Filter>
     </ClInclude>
     <ClInclude Include="source\Mesh.h">
       <Filter>头文件</Filter>
     </ClInclude>
-    <ClInclude Include="source\Loader.h">
-      <Filter>头文件</Filter>
-    </ClInclude>
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="source\VisualModel.cpp">
+    <ClCompile Include="source\proprecess.cpp">
       <Filter>源文件</Filter>
     </ClCompile>
   </ItemGroup>

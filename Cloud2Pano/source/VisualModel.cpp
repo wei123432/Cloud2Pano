@@ -14,7 +14,6 @@
 #include <algorithm>
 #include <omp.h>
 #include "Camera.h"
-#include "Pano.h"
 #include "Algorithm.h"
 #include "Mesh.h"
 #include "Loader.h"
@@ -96,7 +95,7 @@ static bool writeVisibleFacesOBJMulti(const std::string& path,const std::vector<
 int main()
 {
 	//加载模型并计算包围盒信息
-    const std::filesystem::path obj_path = "D:\\experience\\Web\\data_origin\\3DModel\\OBJ\\Data";
+    const std::filesystem::path obj_path = "D:\\experience\\Web\\data_origin\\3DModel\\Simplication_OBJ\\Data";
     std::vector<std::filesystem::path> obj_files = findAllOBJFiles(obj_path);
     std::vector<Mesh> meshes(obj_files.size());
     std::vector<char> loaded(obj_files.size(), 0);
@@ -206,7 +205,7 @@ int main()
             allHitPoints.push_back(hits[k].point);
         }
 
-        const auto out_root = std::filesystem::path("D:\\experience\\try\\Visualmodel\\test");
+        const auto out_root = std::filesystem::path("D:\\experience\\Web\\data_middle\\VisualModel\\new_visual");
         std::filesystem::create_directories(out_root);
 
 		const std::string out_faces = (out_root / ("visible_cam_" + std::to_string(ci) + ".obj")).string();
